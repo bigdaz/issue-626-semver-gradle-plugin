@@ -137,6 +137,9 @@ jobs:
       - name: Build
         run: ./gradlew build ${{ inputs.gradle-args-build }} ${{ inputs.gradle-args }}
 
+      - name: Where's the temp?
+        run: echo "RUNNER_TEMP = $RUNNER_TEMP"
+
       - name: Upload build-results
         if: always()
         continue-on-error: true
