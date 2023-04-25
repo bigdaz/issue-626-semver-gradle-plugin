@@ -11,7 +11,7 @@ on:
 
 jobs:
   build:
-    uses: .github/reusable-workflows/execute-build-kotlin.yaml
+    uses: .github/workflows/execute-build-kotlin.yaml
     with:
       allow-github-actor-bots: false
     secrets: inherit
