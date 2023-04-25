@@ -1,0 +1,322 @@
+name: build-kotlin
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_call:
+    inputs:
+      allow-github-actor-bots:
+        description: 'Jobs are executed if the GitHub Actor contains `[bot]` (for examples: `dependabot[bot]` and `renovate[`bot`])'
+        default: true
+        required: false
+        type: boolean
+      restore-kotlin-native-cache:
+        description: 'Restore Kotlin cache, `~/.konan` directory'
+        default: true
+        required: false
+        type: boolean
+      gradle-cache:
+        description: 'Use Gradle cache'
+        default: true
+        required: false
+        type: string
+      gradle-cache-cleanup:
+        description: 'Enable removing unnecessary Gradle home cache'
+        default: true
+        required: false
+        type: string
+      gradle-args:
+        description: 'Gradle args for every steps'
+        default: ''
+        required: false
+        type: string
+      build:
+        description: 'Enable running build'
+        default: true
+        required: false
+        type: boolean
+      gradle-args-build:
+        description: 'Gradle args for `All tests` step'
+        default: ''
+        required: false
+        type: string
+      code-quality-check:
+        description: 'Enable code quality'
+        default: true
+        required: false
+        type: boolean
+      gradle-args-build-docs:
+        description: 'Gradle args for `Generate docs` step'
+        default: ''
+        required: false
+        type: string
+      gradle-args-publish-snapshot:
+        description: 'Gradle args for `Publish snapshot` step'
+        default: ''
+        required: false
+        type: string
+      publish-snapshot:
+        description: 'Publish artifacts to Sonatype snapshots repository'
+        default: true
+        required: false
+        type: boolean
+      gradle-args-sonar:
+        description: 'Gradle args for `Update Sonar` step'
+        default: ''
+        required: false
+        type: string
+      deploy-docs:
+        description: 'Deploy docs to GitHub pages'
+        default: true
+        required: false
+        type: boolean
+      publish-all-docs:
+        description: 'Publish all docs to GitHub pages'
+        default: false
+        required: false
+        type: string
+    secrets:
+      ANALYSIS_QODANA_TOKEN:
+        required: false
+      ANALYSIS_SONAR_LOGIN:
+        required: false
+      NEXUS_STAGING_PROFILE_ID:
+        required: false
+      NEXUS_TOKEN:
+        required: false
+      NEXUS_USER:
+        required: false
+
+env:
+  ANALYSIS_SONAR_LOGIN: ${{ secrets.ANALYSIS_SONAR_LOGIN }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  QODANA_TOKEN: ${{ secrets.ANALYSIS_QODANA_TOKEN }}
+
+jobs:
+  build:
+    if: ((inputs.allow-github-actor-bots == true) || (!contains(github.actor, '[bot]'))) && (inputs.build)
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ 'macos-latest', 'ubuntu-latest', 'windows-latest' ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3.5.2
+        with:
+          fetch-depth: 0
+
+      - name: Restore Kotlin native cache
+        if: ${{ inputs.restore-kotlin-native-cache == 'true' }}
+        uses: actions/cache@v3.3.1
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('**/gradle/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
+
+      - name: Set up Java
+        uses: actions/setup-java@v3.11.0
+        with:
+          distribution: 'zulu'
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2.4.2
+        with:
+          cache-disabled: ${{ inputs.gradle-cache == 'false' }}
+          gradle-home-cache-cleanup: ${{ inputs.gradle-cache-cleanup == 'true' }}
+
+      # TODO: Fix watchOS simulator. Remove when Kotlin 1.8.0 is released
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        if: matrix.os == 'macos-latest'
+        with:
+          xcode-version: '13.4.1'
+
+      - name: Build
+        run: ./gradlew build ${{ inputs.gradle-args-build }} ${{ inputs.gradle-args }}
+
+      - name: Upload all tests report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: 'report-all-tests-${{ matrix.os }}'
+          path: '**/build/reports/allTests'
+
+      - name: Upload code coverage report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: 'report-code-coverage-${{ matrix.os }}'
+          path: '**/build/reports/kover'
+
+      - name: Update Sonar
+        if: matrix.os == 'ubuntu-latest'
+        run: ./gradlew sonar ${{ inputs.gradle-args-sonar }} ${{ inputs.gradle-args }}
+
+  code-quality-check:
+    if: ((inputs.allow-github-actor-bots == true) || (!contains(github.actor, '[bot]'))) && (inputs.code-quality-check == true)
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3.5.2
+        with:
+          fetch-depth: 0
+
+      - name: Restore Kotlin native cache
+        if: ${{ inputs.restore-kotlin-native-cache == 'true' }}
+        uses: actions/cache@v3.3.1
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('**/gradle/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
+
+      - name: Set up Java
+        uses: actions/setup-java@v3.11.0
+        with:
+          distribution: 'zulu'
+          java-version: 17
+
+      - name: Code quality with Qodana Cloud
+        if: ${{ startsWith(env.QODANA_TOKEN, 'ey') }}
+        uses: JetBrains/qodana-action@v2023.1.0
+        with:
+          cache-default-branch-only: true
+
+      - name: Code quality
+        if: ${{ !startsWith(env.QODANA_TOKEN, 'ey') }}
+        uses: JetBrains/qodana-action@v2023.1.0
+        with:
+          cache-default-branch-only: true
+
+  publish-snapshot:
+    if: |
+      !cancelled() && !failure() &&
+      (((inputs.allow-github-actor-bots == true) || (!contains(github.actor, '[bot]'))) && ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch')) && (inputs.publish-snapshot == true))
+
+    needs: [ build, code-quality-check ]
+
+    runs-on: 'macos-latest'
+
+    env:
+      NEXUS_USER: '${{ secrets.NEXUS_USER }}'
+      NEXUS_TOKEN: '${{ secrets.NEXUS_TOKEN }}'
+      NEXUS_STAGING_PROFILE_ID: '${{ secrets.NEXUS_STAGING_PROFILE_ID }}'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3.5.2
+        with:
+          fetch-depth: 0
+
+      - name: Restore Kotlin native cache
+        if: ${{ inputs.restore-kotlin-native-cache == 'true' }}
+        uses: actions/cache@v3.3.1
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('**/gradle/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
+
+      - name: Set up Java
+        uses: actions/setup-java@v3.11.0
+        with:
+          distribution: 'zulu'
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2.4.2
+        with:
+          cache-disabled: ${{ inputs.gradle-cache == 'false' }}
+          gradle-home-cache-cleanup: ${{ inputs.gradle-cache-cleanup == 'true' }}
+
+      # TODO: Fix watchOS simulator. Remove when Kotlin 1.8.0 is released
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '13.4.1'
+
+      - name: Publish snapshot
+        run: ./gradlew publishToSonatype ${{ inputs.gradle-args-publish-snapshot }} ${{ inputs.gradle-args }} -Psemver.stage=snapshot
+
+  deploy-docs:
+    if: ((inputs.allow-github-actor-bots == true) || (!contains(github.actor, '[bot]'))) && ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch')) && (inputs.deploy-docs == true)
+
+    needs: publish-snapshot
+
+    runs-on: 'ubuntu-latest'
+
+    env:
+      NEXUS_USER: '${{ secrets.NEXUS_USER }}'
+      NEXUS_TOKEN: '${{ secrets.NEXUS_TOKEN }}'
+      NEXUS_STAGING_PROFILE_ID: '${{ secrets.NEXUS_STAGING_PROFILE_ID }}'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3.5.2
+        with:
+          fetch-depth: 0
+
+      - name: Restore Kotlin native cache
+        if: ${{ inputs.restore-kotlin-native-cache == 'true' }}
+        uses: actions/cache@v3.3.1
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('**/gradle/libs.versions.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
+
+      - name: Set up Java
+        uses: actions/setup-java@v3.11.0
+        with:
+          distribution: 'zulu'
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v2.4.2
+        with:
+          cache-disabled: ${{ inputs.gradle-cache == 'false' }}
+          gradle-home-cache-cleanup: ${{ inputs.gradle-cache-cleanup == 'true' }}
+
+      - name: Set semver as output
+        id: semver
+        run: ./gradlew printSemver --githubOnlyRoot --githubOutput -Psemver.stage=snapshot
+
+      - name: Generate docs
+        run: ./gradlew buildSite ${{ inputs.gradle-args-build-docs }} ${{ inputs.gradle-args }} -Psemver.stage=snapshot
+
+      - name: Deploy all docs to GitHub Pages
+        if: (inputs.publish-all-docs == 'true')
+        uses: JamesIves/github-pages-deploy-action@v4.4.1
+        with:
+          branch: 'gh-pages'
+          folder: 'build/docs/_site'
+          single-commit: false
+          commit-message: 'Deploy ${{ steps.semver.outputs.SEMVER }} all docs'
+          clean: true
+          clean-exclude: |
+            api/versions/**
+            reports-generated/**
+
+      - name: Deploy only API docs and reports to GitHub Pages
+        if: (inputs.publish-all-docs == 'false')
+        uses: JamesIves/github-pages-deploy-action@v4.4.1
+        with:
+          branch: 'gh-pages'
+          folder: 'build/docs/_site/api/snapshot/'
+          target-folder: 'api/snapshot/'
+          single-commit: false
+          commit-message: 'Deploy ${{ steps.semver.outputs.SEMVER }} API docs and reports'
+          clean: true
+          clean-exclude: |
+            !api/snapshot/**

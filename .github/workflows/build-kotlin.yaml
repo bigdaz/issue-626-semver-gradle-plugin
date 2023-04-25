@@ -1,6 +1,5 @@
 name: build-kotlin
 
-
 on:
   push:
     paths-ignore:
@@ -12,7 +11,7 @@ on:
 
 jobs:
   build:
-    uses: JavierSegoviaCordoba/reusable-workflows/.github/workflows/build-kotlin.yaml@main
+    uses: .github/reusable-workflows/execute-build-kotlin.yaml
     with:
       allow-github-actor-bots: false
     secrets: inherit
