@@ -138,7 +138,16 @@ jobs:
         run: ./gradlew build ${{ inputs.gradle-args-build }} ${{ inputs.gradle-args }}
 
       - name: List the temp
-        run: ls -la $RUNNER_TEMP
+        run: |
+          ls -la $RUNNER_TEMP
+          ls -la $RUNNER_TEMP/.build-results
+
+      - name: Report env vars
+        run: |
+          echo "RUNNER_TEMP : ${{ env.RUNNER_TEMP }}"
+          echo "GITHUB_ACTION : ${{ env.GITHUB_ACTION }}"
+          echo "RUNNER_TEMP : $RUNNER_TEMP"
+          echo "GITHUB_ACTION : $GITHUB_ACTION"
 
       - name: Upload build-results
         if: always()
