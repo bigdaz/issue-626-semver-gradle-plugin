@@ -135,7 +135,7 @@ jobs:
           xcode-version: '13.4.1'
 
       - name: Build
-        run: ./gradlew build ${{ inputs.gradle-args-build }} ${{ inputs.gradle-args }}
+        run: ./gradlew --scan build ${{ inputs.gradle-args-build }} ${{ inputs.gradle-args }}
 
       - name: List the temp
         run: |
