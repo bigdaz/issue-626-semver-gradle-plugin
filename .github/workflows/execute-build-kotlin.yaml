@@ -142,7 +142,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v3.1.2
         with:
-          name: 'build-results'
-          path: '${{ env.RUNNER_TEMP }}/.build-results'
+          name: build-results
+          path: ${{ env.RUNNER_TEMP }}
 
 
